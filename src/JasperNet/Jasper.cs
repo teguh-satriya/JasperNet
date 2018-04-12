@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Win32;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
@@ -108,9 +109,15 @@ namespace JasperNet
         public string Input { get; set; }
         public string Output { get; set; }
         public string RenderPath { get; set; }
-        public List<string> Format { get; set; }
+        public string[] Format { get; set; }
         public Dictionary<string, string> Parameters { get; set; }
         public JasperDbConnection DbConnection { get; set; }
+
+        public JasperOptions() {
+            Format = new string[] { };
+            Parameters = new Dictionary<string, string>();
+            DbConnection = new JasperDbConnection();
+        }
     }
 
     public class Jasper
@@ -120,55 +127,79 @@ namespace JasperNet
         protected string jasperFilePath;
         protected string reportPath;
         protected string reportName;
+        protected string command;
 
-        protected List<string> format = new List<string>(new string[] {
+        protected string[] format = new string[] {
             "pdf", "rtf", "xls", "xlsx", "docx", "odt", "ods", "pptx", "csv", "html", "xhtml", "xml", "jrprint"
-        });
+        };
+
+        protected string[] supportedJava = new string[] {"1.7","1.8"};
 
         public Jasper()
         {
             this.appPath = HttpContext.Current.Server.MapPath("~");
 
+            RegistryKey localMachineRegistry = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,
+                                                                        Environment.Is64BitOperatingSystem ? RegistryView.Registry64 : RegistryView.Registry32);
+            RegistryKey jreKey = localMachineRegistry.OpenSubKey("SOFTWARE\\JavaSoft\\Java Runtime Environment");
+
+            if (jreKey == null)
+            {
+                throw new Exception("JasperNet require Java Version 7 or above");
+            }
+
+            string jreVer = jreKey.GetValue("CurrentVersion").ToString();
+
+            if (!this.supportedJava.Contains(jreVer))
+            {
+                throw new Exception("JasperNet require JRE/JDK Version 7 or above");
+            }
+
             //Set file path untuk jasperstarter
-            this.jasperStarterPath = this.appPath + "\\JasperStarter\\bin\\jasperstarter";
+            if (string.IsNullOrEmpty(this.jasperStarterPath))
+            {
+                this.jasperStarterPath = this.appPath + "JasperStarter\\bin\\jasperstarter";
+            }
+            else
+            {
+                this.jasperStarterPath = this.appPath + this.jasperStarterPath;
+            }
+            
             if (!File.Exists(this.jasperStarterPath))
             {
                 throw new FileNotFoundException("JasperStarter file missing!");
             }
 
-            //Set folder path untk file jasper
-            this.jasperFilePath = this.appPath + "\\Reports\\";
+            //Set folder path untuk file jasper
+            this.jasperFilePath = this.appPath + "Reports\\";
             if (!Directory.Exists(this.jasperFilePath))
             {
                 Directory.CreateDirectory(this.jasperFilePath);
             }
         }
 
-        public void Compile(JasperOptions config)
+        public void Process(JasperOptions config)
         {
-            string renderCommand = this.jasperStarterPath + " process ";
+            string renderCommand = this.jasperStarterPath + " pr ";
             string jasperFile = this.jasperFilePath + config.Input;
             string renderPath = this.appPath + config.RenderPath;
             string reportFile;
             string renderFile;
-            string command;
 
             if (!File.Exists(jasperFile))
             {
                 throw new FileNotFoundException("Jasper file missing!");
             }
 
-            if (!Directory.Exists(renderPath))
-            {
-                Directory.CreateDirectory(renderPath);
-            }
-
-            if (config.Output == null)
+            if (string.IsNullOrEmpty(config.Output))
             {
                 throw new Exception("Please specify output");
             }
 
-            reportFile = renderPath + config.Output;
+            if (config.Format.Length == 0)
+            {
+                throw new Exception("Please specify format file");
+            }
 
             foreach (var ext in config.Format)
             {
@@ -177,13 +208,21 @@ namespace JasperNet
                     throw new Exception("Format Render not supported");
                 }
             }
+
+            if (!Directory.Exists(renderPath))
+            {
+                Directory.CreateDirectory(renderPath);
+            }
+            
+            reportFile = renderPath + config.Output;
+            
             renderFile = String.Join(" ", config.Format);
 
-            command = renderCommand + jasperFile + " -o " + reportFile + " -f " + renderFile;
-
-            if (config.Parameters != null)
+            this.command = renderCommand + jasperFile + " -o " + reportFile + " -f " + renderFile;
+            
+            if (config.Parameters.Count > 0)
             {
-                command = command + " -P";
+                this.command = this.command + " -P";
                 foreach (KeyValuePair<string, string> param in config.Parameters)
                 {
                     string value;
@@ -196,30 +235,34 @@ namespace JasperNet
                         value = param.Value;
                     }
 
-                    command = command + " " + param.Key + "=" + value;
+                    this.command = this.command + " " + param.Key + "=" + value;
                 }
             }
 
-            if (config.DbConnection.Driver != null && config.DbConnection.Username != null)
+            if (!string.IsNullOrEmpty(config.DbConnection.Driver) && !string.IsNullOrEmpty(config.DbConnection.Username))
             {
-                command = command + " -t " + config.DbConnection.Driver;
-                command = command + " -u " + config.DbConnection.Username;
+                this.command = this.command + " -t " + config.DbConnection.Driver;
+                this.command = this.command + " -u " + config.DbConnection.Username;
 
-                if (config.DbConnection.Password != null)
+                if (!string.IsNullOrEmpty(config.DbConnection.Password))
                 {
-                    command = command + " -p " + config.DbConnection.Password;
+                    this.command = this.command + " -p " + config.DbConnection.Password;
                 }
-                if (config.DbConnection.Database != null)
+                if (!string.IsNullOrEmpty(config.DbConnection.Database))
                 {
-                    command = command + " -n " + config.DbConnection.Database;
+                    this.command = this.command + " -n " + config.DbConnection.Database;
                 }
-                if (config.DbConnection.JdbcDriver != null)
+                if (!string.IsNullOrEmpty(config.DbConnection.Port))
                 {
-                    command = command + " --db-driver " + config.DbConnection.JdbcDriver;
+                    this.command = this.command + " --db-port " + config.DbConnection.Port;
                 }
-                if (config.DbConnection.JdbcUrl != null)
+                if (!string.IsNullOrEmpty(config.DbConnection.JdbcDriver))
                 {
-                    command = command + " --db-url " + config.DbConnection.JdbcUrl;
+                    this.command = this.command + " --db-driver " + config.DbConnection.JdbcDriver;
+                }
+                if (!string.IsNullOrEmpty(config.DbConnection.JdbcUrl))
+                {
+                    this.command = this.command + " --db-url " + config.DbConnection.JdbcUrl;
                 }
             }
 
@@ -227,7 +270,7 @@ namespace JasperNet
             ProcessStartInfo startInfo = new ProcessStartInfo();
             startInfo.WindowStyle = ProcessWindowStyle.Hidden;
             startInfo.FileName = "CMD.exe";
-            startInfo.Arguments = "/C " + command;
+            startInfo.Arguments = "/C " + this.command;
             process.StartInfo = startInfo;
             process.StartInfo.UseShellExecute = false;
             process.Start();
@@ -241,11 +284,11 @@ namespace JasperNet
             }
         }
 
-        public FileContentResult Render(bool delete = true)
+        public FileContentResult Download(bool delete = true)
         {
             if (!File.Exists(this.reportPath))
             {
-                throw new FileNotFoundException("Report file not found");
+                throw new FileNotFoundException("Rendering report failed");
             }
 
             var fileBytes = File.ReadAllBytes(this.reportPath);
