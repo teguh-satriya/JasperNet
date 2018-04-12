@@ -158,7 +158,7 @@ namespace JasperNet
             //Set file path untuk jasperstarter
             if (string.IsNullOrEmpty(this.jasperStarterPath))
             {
-                this.jasperStarterPath = this.appPath + "JasperStarter\\bin\\jasperstarter";
+                this.jasperStarterPath = this.appPath + "\\JasperStarter\\bin\\jasperstarter";
             }
             else
             {
@@ -167,11 +167,11 @@ namespace JasperNet
             
             if (!File.Exists(this.jasperStarterPath))
             {
-                throw new FileNotFoundException("JasperStarter file missing!");
+                throw new FileNotFoundException("JasperStarter file missing! " + this.appPath + "\\JasperStarter\\bin\\jasperstarter");
             }
 
             //Set folder path untuk file jasper
-            this.jasperFilePath = this.appPath + "Reports\\";
+            this.jasperFilePath = this.appPath + "\\Reports\\";
             if (!Directory.Exists(this.jasperFilePath))
             {
                 Directory.CreateDirectory(this.jasperFilePath);
